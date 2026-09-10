@@ -5,17 +5,23 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.24.6'
           channel: stable
       - run: flutter pub get
       - run: flutter create . --platforms=android
       - name: Izinkan koneksi http
-        run: sed -i 's|<application |<application android:usesCleartextTraffic="true" |' android/app/src/main/AndroidManifest.xml
+        run: |
+          sed -i 's|<application|<application android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
+          grep -n "usesCleartextTraffic" android/app/src/main/AndroidManifest.xml
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
