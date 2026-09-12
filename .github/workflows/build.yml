@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,20 +20,16 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
           channel: stable
+
+      - name: Versi Flutter
+        run: flutter --version
 
       - name: Pub get
         run: flutter pub get
 
       - name: Buat folder Android
         run: flutter create . --platforms=android
-
-      - name: Naikkan versi Kotlin
-        run: |
-          sed -i 's|id "org.jetbrains.kotlin.android" version "[^"]*" apply false|id "org.jetbrains.kotlin.android" version "1.9.24" apply false|' android/settings.gradle
-          sed -i "s|ext.kotlin_version = .*|ext.kotlin_version = '1.9.24'|" android/build.gradle || true
-          grep -n "kotlin" android/settings.gradle || true
 
       - name: Izinkan http
         run: sed -i 's|<application|<application android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
