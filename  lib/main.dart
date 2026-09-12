@@ -26,7 +26,7 @@ class SipelakApp extends StatelessWidget {
     return MaterialApp(
       title: 'SIPELAK',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(useMaterial3: true).copyWith(
+      theme: ThemeData.dark().copyWith(
         colorScheme: ColorScheme.dark(
           primary: Colors.lightBlueAccent,
           secondary: Colors.indigoAccent,
@@ -275,7 +275,7 @@ class _HalamanCekState extends State<HalamanCek> {
         if (h != null && h["error"] != null)
           _kartu(Colors.red.shade900, "⚠️ ${h["error"]}"),
         if (h != null && h["error"] == null) ...[
-          _kartu(warnaVerdict.withOpacity(0.25), "",
+          _kartu(warnaVerdict.withValues(alpha: 0.25), "",
               anak: Column(children: [
                 Text("⚖️ ${h["verdict"]}",
                     style: TextStyle(
