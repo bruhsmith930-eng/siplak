@@ -8,8 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ====== NANTI DIGANTI SAAT SERVER SUDAH SIAP ======
-const String SERVER = "http://GANTI-IP-VPS-ANDA:8080";
-const String KUNCI_API = "GANTI-KUNCI-RAHASIA-ANDA-MINIMAL-32-KARAKTER";
+const String SERVER = "https://bruhsmith930.pythonanywhere.com";
+const String KUNCI_API = "SIPELAK-2026-KUNCI-RAHASIA-panjang-minimal-32-karakter";
 
 void main() => runApp(const SipelakApp());
 
