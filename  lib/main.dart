@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ====== NANTI DIGANTI SAAT SERVER SUDAH SIAP ======
@@ -12,6 +12,12 @@ const String SERVER = "http://GANTI-IP-VPS-ANDA:8080";
 const String KUNCI_API = "GANTI-KUNCI-RAHASIA-ANDA-MINIMAL-32-KARAKTER";
 
 void main() => runApp(const SipelakApp());
+
+void salinDanKabari(BuildContext context, String teks) {
+  Clipboard.setData(ClipboardData(text: teks));
+  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text("✅ Pesan disalin ke papan klip. Tempel di WhatsApp/medsos untuk menyebar.")));
+}
 
 class SipelakApp extends StatelessWidget {
   const SipelakApp({super.key});
@@ -195,7 +201,7 @@ class _HalamanCekState extends State<HalamanCek> {
     setState(() => _loading = false);
   }
 
-  void _share() {
+  void _share(BuildContext context) {
     final h = _hasil;
     if (h == null || h["error"] != null) return;
     final skor = (h["skor"] ?? 0) as int;
@@ -210,7 +216,7 @@ class _HalamanCekState extends State<HalamanCek> {
         "$peringatan\n\n"
         "🛡️ Dicek via aplikasi SIPELAK.\n"
         "Sebarluaskan agar tidak ada korban berikutnya.";
-    Share.share(pesan);
+    salinDanKabari(context, pesan);
   }
 
   Widget _kartu(Color warna, String teks, {Widget? anak}) => Container(
@@ -301,7 +307,7 @@ class _HalamanCekState extends State<HalamanCek> {
           if (skor >= 30) ...[
             const SizedBox(height: 4),
             FilledButton.tonalIcon(
-              onPressed: _share,
+              onPressed: () => _share(context),
               icon: const Icon(Icons.campaign),
               label: const Text("SEBARKAN PERINGATAN"),
               style: FilledButton.styleFrom(
@@ -626,10 +632,8 @@ class _HalamanBerkasState extends State<HalamanBerkas> {
           ),
           const SizedBox(height: 12),
           FilledButton.tonalIcon(
-              onPressed: () {
-                Share.share(
-                    "Berkas hukum SIPELAK untuk nomor ${_nomor.text.trim()} siap di server: ${_hasil!["file_zip"]}");
-              },
+              onPressed: () => salinDanKabari(context,
+                  "Berkas hukum SIPELAK untuk nomor ${_nomor.text.trim()} siap di server: ${_hasil!["file_zip"]}"),
               icon: const Icon(Icons.share),
               label: const Text("BAGIKAN INFO BERKAS")),
         ],
