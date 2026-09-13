@@ -1,4 +1,4 @@
-aimport 'dart:convert';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -7,11 +7,9 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// ====== NANTI DIGANTI SAAT SERVER SUDAH SIAP ======
-String SERVER = "https://bruhsmith930.pythonanywhere.com";
+// ====== SERVER SUDAH SIAP ======
+const String SERVER = "https://bruhsmith930.pythonanywhere.com";
 const String KUNCI_API = "SIPELAK-2026-KUNCI-RAHASIA-panjang-minimal-32-karakter";
-// v2 paksa build baru
-
 
 void main() => runApp(const SipelakApp());
 
@@ -67,7 +65,6 @@ class LayarPersetujuan extends StatefulWidget {
 
 class _LayarPersetujuanState extends State<LayarPersetujuan> {
   bool _cek = false;
-
   @override
   void initState() {
     super.initState();
@@ -239,7 +236,6 @@ class _HalamanCekState extends State<HalamanCek> {
     final skor = h == null ? 0 : ((h["skor"] ?? 0) as int);
     final warnaVerdict =
         skor >= 60 ? Colors.red : skor >= 30 ? Colors.orange : Colors.green;
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
