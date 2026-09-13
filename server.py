@@ -1,119 +1,118 @@
-import hashlib, os, sqlite3, zipfile, datetime
+import hashlib, os, sqlite3, zipfile, datetime, json
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 KUNCI = "SIPELAK-2026-KUNCI-RAHASIA-panjang-minimal-32-karakter"
-BASE = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(BASE, "sipelak.db")
-BUKTI_DIR = os.path.join(BASE, "bukti")
-BERKAS_DIR = os.path.join(BASE, "berkas")
-os.makedirs(BUKTI_DIR, exist_ok=True)
-os.makedirs(BERKAS_DIR, exist_ok=True)
+HOME = os.path.expanduser("~")
+DB = os.path.join(HOME, "sipelak.db")
+DIR_BUKTI = os.path.join(HOME, "bukti"); os.makedirs(DIR_BUKTI, exist_ok=True)
+DIR_BERKAS = os.path.join(HOME, "berkas"); os.makedirs(DIR_BERKAS, exist_ok=True)
 
 def db():
-    con = sqlite3.connect(DB)
-    con.row_factory = sqlite3.Row
-    return con
-
-def init():
-    con = db()
-    con.execute("""CREATE TABLE IF NOT EXISTS laporan(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nomor_hp TEXT, nomor_rekening TEXT, nama_pelaku TEXT, bank TEXT,
-        jenis TEXT, kerugian REAL, kronologi TEXT, bukti_chat TEXT,
-        pelapor_hash TEXT, waktu TEXT)""")
-    con.execute("""CREATE TABLE IF NOT EXISTS bukti(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        laporan_id INTEGER, hash_sha256 TEXT, nama_file TEXT, waktu TEXT)""")
-    con.commit(); con.close()
-init()
+    c = sqlite3.connect(DB); c.row_factory = sqlite3.Row
+    c.execute("""CREATE TABLE IF NOT EXISTS laporan(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, nomor_hp TEXT, nomor_rekening TEXT,
+        nama_pelaku TEXT, bank TEXT, jenis TEXT, kerugian REAL DEFAULT 0,
+        kronologi TEXT, bukti_chat TEXT, pelapor_hash TEXT, waktu TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS bukti(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, laporan_id INTEGER,
+        hash_sha256 TEXT, nama_file TEXT, waktu TEXT)""")
+    return c
 
 def kunci_ok():
-    return request.headers.get("X-API-Key") == KUNCI
+    return request.headers.get("X-API-Key", "") == KUNCI
 
-@app.get("/")
-def ping():
-    return "SIPELAK server hidup ✅"
+@app.errorhandler(404)
+def e404(e): return jsonify(error="Endpoint tidak ditemukan (404)."), 404
 
-@app.post("/cek")
+@app.errorhandler(Exception)
+def eany(e): return jsonify(error="Server error: %s" % e), 500
+
+@app.route("/")
+def root(): return "SIPELAK server hidup ✅"
+
+@app.route("/cek", methods=["POST"])
 def cek():
-    if not kunci_ok(): return jsonify({"error": "kunci salah"}), 401
-    n = (request.json or {}).get("nomor", "").strip()
-    con = db()
-    rows = con.execute("SELECT * FROM laporan WHERE nomor_hp=?", (n,)).fetchall()
-    con.close()
-    s = 0
-    if rows:
-        s = min(100, len(rows)*30
-                + (20 if any(r["nomor_rekening"] for r in rows) else 0)
-                + (10 if any((r["kerugian"] or 0) > 0 for r in rows) else 0))
-    flags = []
-    if rows: flags.append(f"⚠️ {len(rows)} laporan masuk untuk nomor ini.")
-    if any(r["nomor_rekening"] for r in rows): flags.append("🏦 Nomor rekening pelaku tercatat.")
-    if any((r["kerugian"] or 0) > 0 for r in rows): flags.append("💰 Ada kerugian material dilaporkan.")
-    v = "TERINDIKASI PENIPUAN TINGGI" if s >= 60 else ("WASPADA - ADA LAPORAN" if s >= 30 else "BELUM ADA LAPORAN TERCATAT")
-    return jsonify({"nomor": n, "verdict": v, "skor": s,
-                    "jumlah_laporan": len(rows),
-                    "korban_unik": len(set(r["pelapor_hash"] for r in rows)),
-                    "total_kerugian": int(sum(r["kerugian"] or 0 for r in rows)),
-                    "flags": flags})
+    if not kunci_ok(): return jsonify(error="Kunci API ditolak (401)."), 401
+    nomor = (request.get_json(silent=True) or {}).get("nomor", "").strip()
+    c = db()
+    rows = c.execute("SELECT * FROM laporan WHERE nomor_hp=?", (nomor,)).fetchall()
+    n = len(rows)
+    if n == 0:
+        return jsonify(nomor=nomor, verdict="BELUM ADA LAPORAN TERCATAT", skor=0,
+                       jumlah_laporan=0, korban_unik=0, total_kerugian=0, flags=[])
+    korban = len({r["pelapor_hash"] for r in rows})
+    rugi = sum(r["kerugian"] or 0 for r in rows)
+    skor = min(100, n * 30 + (20 if rugi > 0 else 0) + (10 if korban >= 2 else 0))
+    verdict = "BAHAYA - TERINDIKASI PENIPUAN" if skor >= 60 else "WASPADA - ADA LAPORAN"
+    flags = ["📌 Nomor dilaporkan %d kali" % n, "👥 %d pelapor berbeda" % korban,
+             "💰 Total kerugian Rp %s" % format(int(rugi), ","),
+             "🕒 Laporan terakhir: %s" % rows[-1]["waktu"]]
+    teks = ((rows[-1]["bukti_chat"] or "") + (rows[-1]["kronologi"] or "")).lower()
+    for kw, ps in [("transfer", "💬 Chat menyebut 'transfer'"), ("otp", "💬 Chat meminta OTP/kode"),
+                   ("rekening", "💬 Menyebut nomor rekening"), ("hadiah", "💬 Modus hadiah/undian")]:
+        if kw in teks: flags.append(ps)
+    return jsonify(nomor=nomor, verdict=verdict, skor=skor, jumlah_laporan=n,
+                   korban_unik=korban, total_kerugian=int(rugi), flags=flags)
 
-@app.post("/lapor")
+@app.route("/lapor", methods=["POST"])
 def lapor():
-    if not kunci_ok(): return jsonify({"error": "kunci salah"}), 401
-    d = request.json or {}
-    ph = hashlib.sha256((d.get("pelapor", "") or "anonim").encode()).hexdigest()[:16]
-    con = db()
-    cur = con.execute("""INSERT INTO laporan(nomor_hp,nomor_rekening,nama_pelaku,bank,jenis,kerugian,kronologi,bukti_chat,pelapor_hash,waktu)
-                         VALUES(?,?,?,?,?,?,?,?,?,?)""",
-        (d.get("nomor_hp",""), d.get("nomor_rekening",""), d.get("nama_pelaku",""), d.get("bank",""),
-         d.get("jenis",""), d.get("kerugian",0), d.get("kronologi",""), d.get("bukti_chat",""),
-         ph, datetime.datetime.now().isoformat()))
-    con.commit(); i = cur.lastrowid; con.close()
-    return jsonify({"id": i})
+    if not kunci_ok(): return jsonify(error="Kunci API ditolak (401)."), 401
+    d = request.get_json(silent=True) or {}
+    ph = hashlib.sha256(((d.get("pelapor") or "") + "|" + (d.get("nomor_hp") or "")).encode()).hexdigest()[:16]
+    c = db()
+    cur = c.execute("""INSERT INTO laporan(nomor_hp,nomor_rekening,nama_pelaku,bank,jenis,
+        kerugian,kronologi,bukti_chat,pelapor_hash,waktu) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+        (d.get("nomor_hp", ""), d.get("nomor_rekening", ""), d.get("nama_pelaku", ""),
+         d.get("bank", ""), d.get("jenis", ""), float(d.get("kerugian") or 0),
+         d.get("kronologi", ""), d.get("bukti_chat", ""), ph,
+         datetime.datetime.now().strftime("%Y-%m-%d %H:%M")))
+    c.commit()
+    return jsonify(ok=True, id=cur.lastrowid)
 
-@app.post("/bukti_file")
+@app.route("/bukti_file", methods=["POST"])
 def bukti_file():
-    if not kunci_ok(): return jsonify({"error": "kunci salah"}), 401
+    if not kunci_ok(): return jsonify(error="Kunci API ditolak (401)."), 401
     f = request.files.get("file")
-    if f is None: return jsonify({"error": "tidak ada file"}), 400
-    data = f.read()
-    h = hashlib.sha256(data).hexdigest()
-    with open(os.path.join(BUKTI_DIR, h + ".bin"), "wb") as o: o.write(data)
-    con = db()
-    con.execute("INSERT INTO bukti(laporan_id,hash_sha256,nama_file,waktu) VALUES(?,?,?,?)",
-        (int(request.form.get("laporan_id", "0") or 0), h, f.filename, datetime.datetime.now().isoformat()))
-    con.commit(); con.close()
-    return jsonify({"hash_sha256": h})
+    if f is None: return jsonify(error="File tidak ada."), 400
+    data = f.read(); h = hashlib.sha256(data).hexdigest()
+    nama = h[:12] + ".bin"
+    open(os.path.join(DIR_BUKTI, nama), "wb").write(data)
+    c = db()
+    c.execute("INSERT INTO bukti(laporan_id,hash_sha256,nama_file,waktu) VALUES(?,?,?,?)",
+              (int(request.form.get("laporan_id") or 0), h, nama,
+               datetime.datetime.now().strftime("%Y-%m-%d %H:%M")))
+    c.commit()
+    return jsonify(ok=True, hash_sha256=h)
 
-@app.get("/berkas/<nomor>")
+@app.route("/berkas/<nomor>")
 def berkas(nomor):
-    if not kunci_ok(): return jsonify({"error": "kunci salah"}), 401
-    con = db()
-    rows = con.execute("SELECT * FROM laporan WHERE nomor_hp=?", (nomor,)).fetchall()
-    buk = con.execute("SELECT * FROM bukti").fetchall()
-    con.close()
-    if not rows: return jsonify({"error": "belum ada laporan untuk nomor ini"}), 404
-    surat = ["BERKAS BUKTI SIPELAK", "="*40, f"Nomor terlapor: {nomor}",
-             f"Dicetak: {datetime.datetime.now().isoformat()}", ""]
-    for r in rows:
-        surat.append(f"- Laporan #{r['id']} | jenis: {r['jenis']} | kerugian: Rp{int(r['kerugian'] or 0)}")
-        surat.append(f"  kronologi: {r['kronologi']}")
-    zname = f"berkas_{nomor}.zip"
-    with zipfile.ZipFile(os.path.join(BERKAS_DIR, zname), "w") as z:
-        z.writestr("surat_pengantar.txt", "\n".join(surat))
-        for r in rows: z.writestr(f"laporan_{r['id']}.txt", str(dict(r)))
-    return jsonify({"file_zip": zname,
-                    "jumlah_korban": len(set(r["pelapor_hash"] for r in rows)),
-                    "total_kerugian": int(sum(r["kerugian"] or 0 for r in rows)),
-                    "jumlah_bukti": len(buk), "isi_surat": "\n".join(surat)})
+    if not kunci_ok(): return jsonify(error="Kunci API ditolak (401)."), 401
+    c = db()
+    rows = c.execute("SELECT * FROM laporan WHERE nomor_hp=?", (nomor,)).fetchall()
+    if not rows: return jsonify(error="Belum ada laporan untuk nomor ini."), 404
+    ids = ",".join(str(r["id"]) for r in rows)
+    bukti = c.execute("SELECT * FROM bukti WHERE laporan_id IN (%s)" % ids).fetchall()
+    rugi = sum(r["kerugian"] or 0 for r in rows)
+    surat = ("BERKAS BUKTI SIPELAK\nNomor terlapor: %s\nJumlah laporan: %d\nTotal kerugian: Rp %s\nJumlah bukti tersegel: %d\nDicetak: %s\n\nRINGKASAN KRONOLOGI:\n"
+             % (nomor, len(rows), format(int(rugi), ","), len(bukti),
+                datetime.datetime.now().strftime("%Y-%m-%d %H:%M")))
+    for r in rows: surat += "- [%s] %s\n" % (r["waktu"], r["kronologi"])
+    nama_zip = "berkas_%s.zip" % nomor
+    with zipfile.ZipFile(os.path.join(DIR_BERKAS, nama_zip), "w") as z:
+        z.writestr("surat_pengantar.txt", surat)
+        z.writestr("laporan.json", json.dumps([dict(r) for r in rows], ensure_ascii=False, indent=2))
+        for b in bukti:
+            p = os.path.join(DIR_BUKTI, b["nama_file"])
+            if os.path.exists(p): z.write(p, "bukti/" + b["nama_file"])
+    return jsonify(file_zip=nama_zip, jumlah_korban=len({r["pelapor_hash"] for r in rows}),
+                   total_kerugian=int(rugi), jumlah_bukti=len(bukti), isi_surat=surat)
 
-@app.get("/statistik")
+@app.route("/statistik")
 def statistik():
-    if not kunci_ok(): return jsonify({"error": "kunci salah"}), 401
-    con = db()
-    total = con.execute("SELECT COUNT(DISTINCT nomor_hp) FROM laporan").fetchone()[0]
-    per = con.execute("SELECT jenis, COUNT(*) AS kasus, SUM(kerugian) AS rugi FROM laporan GROUP BY jenis").fetchall()
-    con.close()
-    return jsonify({"total_blacklist": total,
-                    "per_jenis": [{"jenis": p["jenis"], "kasus": p["kasus"], "rugi": int(p["rugi"] or 0)} for p in per]})
+    if not kunci_ok(): return jsonify(error="Kunci API ditolak (401)."), 401
+    c = db()
+    total = c.execute("SELECT COUNT(DISTINCT nomor_hp) FROM laporan").fetchone()[0]
+    pj = c.execute("SELECT jenis, COUNT(*) AS kasus, SUM(kerugian) AS rugi FROM laporan GROUP BY jenis").fetchall()
+    return jsonify(total_blacklist=total,
+                   per_jenis=[{"jenis": r["jenis"], "kasus": r["kasus"], "rugi": int(r["rugi"] or 0)} for r in pj])
